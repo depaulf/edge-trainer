@@ -750,9 +750,26 @@ export default function App(){
 
   async function persistGs(newGs){gsRef.current={...newGs};setGs({...newGs});await saveGs(newGs);}
 
+  function applyDailyActivity(g){
+    const today=new Date().toISOString().slice(0,10);
+    if(g.lastPlayDate!==today){
+      // Save yesterday's session if it had hands
+      if(g.todayDate&&g.todayHands>0){
+        g.sessions=[...(g.sessions||[]).slice(-29),{date:g.todayDate,correct:g.todayCorrect,total:g.todayHands,xp:g.todayXP}];
+      }
+      // Streak: increment if consecutive day, reset if missed
+      const yest=new Date(Date.now()-86400000).toISOString().slice(0,10);
+      g.streak=g.lastPlayDate===yest?(g.streak||0)+1:1;
+      if(g.streak>(g.bestStreak||0))g.bestStreak=g.streak;
+      g.lastPlayDate=today;g.todayDate=today;g.todayHands=0;g.todayCorrect=0;g.todayXP=0;
+    }
+    return g;
+  }
+
   function handleTabResult(tab,isRight){
     if(!gsRef.current)return;
-    const g={...gsRef.current};
+    let g={...gsRef.current};
+    g=applyDailyActivity(g);
     if(!g.tabStats)g.tabStats={strategy:{correct:0,total:0},count:{correct:0,total:0},truecount:{correct:0,total:0},deviation:{correct:0,total:0},combined:{correct:0,total:0}};
     if(!g.tabStats[tab])g.tabStats[tab]={correct:0,total:0};
     g.tabStats[tab]={correct:g.tabStats[tab].correct+(isRight?1:0),total:g.tabStats[tab].total+1};
@@ -761,15 +778,8 @@ export default function App(){
 
   function handleAnswer(isRight,handKey,handLabel){
     if(!gsRef.current)return;
-    const g={...gsRef.current};
-    const today=new Date().toISOString().slice(0,10);
-    if(g.lastPlayDate!==today){
-      if(g.todayDate&&g.todayHands>0){g.sessions=[...(g.sessions||[]).slice(-29),{date:g.todayDate,correct:g.todayCorrect,total:g.todayHands,xp:g.todayXP}];}
-      const yest=new Date(Date.now()-86400000).toISOString().slice(0,10);
-      if(g.lastPlayDate===yest){g.streak=(g.streak||0)+1;}else{g.streak=g.lastPlayDate?0:0;g.streak=1;}
-      if(g.streak>(g.bestStreak||0))g.bestStreak=g.streak;
-      g.lastPlayDate=today;g.todayDate=today;g.todayHands=0;g.todayCorrect=0;g.todayXP=0;
-    }
+    let g={...gsRef.current};
+    g=applyDailyActivity(g);
     g.totalHands=(g.totalHands||0)+1;g.todayHands=(g.todayHands||0)+1;
     if(isRight){g.totalCorrect=(g.totalCorrect||0)+1;g.todayCorrect=(g.todayCorrect||0)+1;}
     // Track strategy tab stats for progression
