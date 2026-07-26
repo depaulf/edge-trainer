@@ -1,0 +1,45 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="40%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#065f46"/>
+      <stop offset="100%" stop-color="#022c22"/>
+    </radialGradient>
+    <filter id="cardShadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="5" dy="8" stdDeviation="10" flood-color="#000" flood-opacity="0.4"/>
+    </filter>
+    <filter id="badgeShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="3" dy="4" stdDeviation="6" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- App icon background -->
+  <rect width="512" height="512" rx="110" fill="url(#bg)"/>
+
+  <!-- Subtle inner glow ring -->
+  <rect x="6" y="6" width="500" height="500" rx="106" fill="none" stroke="#10b981" stroke-width="2" opacity="0.3"/>
+
+  <!-- Playing card -->
+  <rect x="85" y="55" width="230" height="320" rx="22" fill="white" filter="url(#cardShadow)"/>
+  <rect x="85" y="55" width="230" height="320" rx="22" fill="none" stroke="#d1d5db" stroke-width="1.5"/>
+
+  <!-- Top-left rank & suit -->
+  <text x="108" y="122" font-family="Georgia, 'Times New Roman', serif" font-size="62" font-weight="bold" fill="#111827">A</text>
+  <text x="112" y="165" font-family="Georgia, 'Times New Roman', serif" font-size="38" fill="#111827">♠</text>
+
+  <!-- Center large spade -->
+  <text x="200" y="278" font-family="Georgia, 'Times New Roman', serif" font-size="118" fill="#111827" text-anchor="middle">♠</text>
+
+  <!-- Bottom-right rank & suit (inverted) -->
+  <g transform="translate(315, 375) rotate(180)">
+    <text x="0" y="62" font-family="Georgia, 'Times New Roman', serif" font-size="62" font-weight="bold" fill="#111827">A</text>
+    <text x="4" y="105" font-family="Georgia, 'Times New Roman', serif" font-size="38" fill="#111827">♠</text>
+  </g>
+
+  <!-- Gold "21" badge circle -->
+  <circle cx="358" cy="362" r="88" fill="#78350f" filter="url(#badgeShadow)"/>
+  <circle cx="358" cy="362" r="81" fill="#d97706"/>
+  <circle cx="358" cy="362" r="74" fill="#fbbf24"/>
+
+  <!-- "21" text -->
+  <text x="358" y="390" font-family="Georgia, 'Times New Roman', serif" font-size="62" font-weight="bold" fill="#1c1917" text-anchor="middle">21</text>
+</svg>
