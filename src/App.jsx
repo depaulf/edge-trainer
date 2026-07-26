@@ -149,11 +149,15 @@ function explainAction(playerCards,dealerUp,action,isPair,isSoft,total){
 }
 function universalRule(playerCards,dealerUp,action,isPair,isSoft,total){
   const dw=['2','3','4','5','6'].includes(dealerUp);
+  const dvw=['4','5','6'].includes(dealerUp);
   if(isPair){const r=playerCards[0].rank;if(r==='A'||r==='8')return"📏 Rule: ALWAYS split Aces and 8s, no exceptions.";if(r==='10')return"📏 Rule: NEVER split 10s — 20 is too good to break up.";if(r==='5')return"📏 Rule: NEVER split 5s — treat as hard 10 and double when dealer is weak.";return"📏 Rule: Split low pairs only when dealer shows 2–7 (weak cards most likely to bust them).";}
   if(isSoft)return"📏 Rule: Soft hands can't bust on one card — lean toward hitting or doubling, rarely stand below soft 18.";
   if(total>=17)return"📏 Rule: Hard 17+ — ALWAYS stand, no matter what.";
   if(total<=11)return"📏 Rule: Hard 11 or less can never bust on one card — hit or double, never stand.";
-  if(total>=12&&total<=16)return dw?"📏 Rule: Dealer 2–6 is weak and likely to bust. Stand on stiff hands (12–16) and let them hang.":"📏 Rule: Dealer 7–Ace is strong. Hit your stiff hands (12–16) even at bust risk.";
+  // 12 is the trickiest stiff hand — 2 and 3 are NOT weak enough to justify standing
+  if(total===12&&(dealerUp==='2'||dealerUp==='3'))return"📏 Rule: Hard 12 vs dealer 2 or 3 — HIT. Dealer 2 and 3 are weak but not weak enough. Only stand on 12 vs dealer 4, 5, or 6.";
+  if(total===12&&dvw)return"📏 Rule: Hard 12 vs dealer 4–6 — STAND. This is the one stiff hand where dealer is weak enough to risk it.";
+  if(total>=13&&total<=16)return dw?"📏 Rule: Dealer 2–6 is weak and likely to bust. Stand on stiff hands (13–16) and let them hang.":"📏 Rule: Dealer 7–Ace is strong. Hit your stiff hands (12–16) even at bust risk.";
   return"📏 Rule: Dealer upcard drives everything — 2–6 weak (stand more), 7–Ace strong (hit more).";
 }
 function getCorrectAction(playerCards,dealerUp){
