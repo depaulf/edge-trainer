@@ -50,6 +50,11 @@ const LEVELS=[
 function getLevel(xp){for(let i=LEVELS.length-1;i>=0;i--){if(xp>=LEVELS[i].min)return{...LEVELS[i],index:i};}return{...LEVELS[0],index:0};}
 function xpProgress(xp){const lv=getLevel(xp);const nx=LEVELS[lv.index+1];if(!nx)return{pct:100,toNext:0};const range=nx.min-lv.min;const prog=xp-lv.min;return{pct:Math.round(prog/range*100),toNext:nx.min-xp};}
 
+// Use LOCAL date (not UTC) so the day resets at midnight the user's time, not 7 PM CST
+function localToday(){const d=new Date();return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+function localYesterday(){const d=new Date();d.setDate(d.getDate()-1);return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+
+
 const CHATTER=["So where you from?","Nice hand!","You been here long?","Did you see the game?","What are you drinking?","First time here?","You're on a roll!","Dealer's been cold all night","You play here often?","That was close!","What brings you to Vegas?","Feeling lucky?","Nice one!","Wild night in here."];
 
 const DAILY_GOAL = 20;
@@ -285,7 +290,7 @@ function ProgressDashboard({gs,onNavigate}){
   const lv=getLevel(gs.xp);const xpp=xpProgress(gs.xp);
   const chartData=gs.sessions.slice(-14).map((s,i)=>({name:s.date?s.date.slice(5):`#${i+1}`,acc:s.total?Math.round(s.correct/s.total*100):0}));
   const nemList=Object.entries(gs.nemesis||{}).map(([k,v])=>({k,...v,rate:v.total>=3?Math.round(v.wrong/v.total*100):0})).filter(n=>n.total>=3&&n.rate>20).sort((a,b)=>b.rate-a.rate).slice(0,6);
-  const today=new Date().toISOString().slice(0,10);
+  const today=localToday();
   const todayProgress=gs.todayDate===today?Math.min(100,Math.round((gs.todayCorrect||0)/DAILY_GOAL*100)):0;
   const motivations=[
     [0,"Start your first session — the habit begins today 🌱"],
@@ -508,8 +513,10 @@ function StrategyTrainer({onAnswer,nemesis}){
         </div>
       )}
       {!handDone&&(
-        <div className="grid grid-cols-5 gap-2 w-full max-w-md">
-          {ACTION_KEYS.map(a=>(<button key={a.key} onClick={()=>handleDecision(a.key)} className="py-3 rounded-lg bg-emerald-800 hover:bg-emerald-700 text-amber-100 font-semibold text-sm border border-amber-600/30 transition-colors">{a.label}</button>))}
+        <div className={`grid gap-2 w-full max-w-md ${playerCards.length<=2?'grid-cols-5':'grid-cols-2'}`}>
+          {ACTION_KEYS
+            .filter(a=>playerCards.length<=2||(a.key==='H'||a.key==='S'))
+            .map(a=>(<button key={a.key} onClick={()=>handleDecision(a.key)} className="py-3 rounded-lg bg-emerald-800 hover:bg-emerald-700 text-amber-100 font-semibold text-sm border border-amber-600/30 transition-colors">{a.label}</button>))}
         </div>
       )}
       {handDone&&(
@@ -741,9 +748,9 @@ export default function App(){
     injectDealStyles();
     loadGs().then(data=>{
       // Check streak on load
-      const today=new Date().toISOString().slice(0,10);
+      const today=localToday();
       if(data.lastPlayDate&&data.lastPlayDate!==today){
-        const yest=new Date(Date.now()-86400000).toISOString().slice(0,10);
+        const yest=localYesterday();
         if(data.lastPlayDate!==yest)data.streak=0;
       }
       setGs(data);gsRef.current=data;
@@ -753,14 +760,14 @@ export default function App(){
   async function persistGs(newGs){gsRef.current={...newGs};setGs({...newGs});await saveGs(newGs);}
 
   function applyDailyActivity(g){
-    const today=new Date().toISOString().slice(0,10);
+    const today=localToday();
     if(g.lastPlayDate!==today){
       // Save yesterday's session if it had hands
       if(g.todayDate&&g.todayHands>0){
         g.sessions=[...(g.sessions||[]).slice(-29),{date:g.todayDate,correct:g.todayCorrect,total:g.todayHands,xp:g.todayXP}];
       }
       // Streak: increment if consecutive day, reset if missed
-      const yest=new Date(Date.now()-86400000).toISOString().slice(0,10);
+      const yest=localYesterday();
       g.streak=g.lastPlayDate===yest?(g.streak||0)+1:1;
       if(g.streak>(g.bestStreak||0))g.bestStreak=g.streak;
       g.lastPlayDate=today;g.todayDate=today;g.todayHands=0;g.todayCorrect=0;g.todayXP=0;
@@ -803,7 +810,7 @@ export default function App(){
 
   const lv=gs?getLevel(gs.xp):{title:'...',icon:'🎲',color:'text-stone-400',index:0};
   const xpp=gs?xpProgress(gs.xp):{pct:0,toNext:0};
-  const today=new Date().toISOString().slice(0,10);
+  const today=localToday();
   const todayCorrect=gs&&gs.todayDate===today?gs.todayCorrect||0:0;
   const TABS=[{key:'strategy',label:'Strategy'},{key:'count',label:'Running Count'},{key:'truecount',label:'True Count'},{key:'deviation',label:'Deviation'},{key:'combined',label:'Combined'},{key:'casino',label:'🎰 Casino'},{key:'progress',label:'📈 Progress'}];
 
