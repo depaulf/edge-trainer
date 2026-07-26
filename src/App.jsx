@@ -478,7 +478,7 @@ function StrategyTrainer({onAnswer,nemesis}){
   const canUp=stats.total>=15&&acc>=85&&stage<5;
   const handAllCorrect=decisions.length>0&&decisions.every(d=>d.isRight);
   const wrongDecisions=decisions.filter(d=>!d.isRight);
-  const resultLabel=handResult==='bust'?`Bust (${currentTotal})`:handResult==='surrendered'?'Surrendered':handResult==='doubled'?`Doubled → ${currentTotal}`:handResult==='split'?'Split':`Stood on ${currentTotal}`;
+  const resultLabel=handResult==='bust'?'Bust':handResult==='surrendered'?'Surrendered':handResult==='doubled'?'Doubled':handResult==='split'?'Split':'Stood';
 
   return(
     <div className="flex flex-col items-center gap-5">
@@ -493,9 +493,7 @@ function StrategyTrainer({onAnswer,nemesis}){
         {dealerUp&&<Card key={`d-${dealKey}`} card={{rank:dealerUp,suit:'♠',red:false}} deal dealDelay={0.32}/>}
       </div>
       <div className="flex flex-col items-center gap-2">
-        <span className="text-amber-300/70 text-xs uppercase tracking-widest">
-          Your hand{playerCards.length>0&&<span className={`ml-2 font-bold ${currentTotal>21?'text-rose-400':currentTotal===21?'text-amber-300':'text-amber-200'}`}>({currentTotal}{currentTotal>21?' BUST':currentTotal===21?' — 21':''})</span>}
-        </span>
+        <span className="text-amber-300/70 text-xs uppercase tracking-widest">Your hand</span>
         <div className="flex gap-1.5 flex-wrap justify-center">
           {playerCards.map((c,i)=>(<Card key={`p-${dealKey}-${i}`} card={c} deal={i===lastHitIdx||(lastHitIdx===-1&&i<2)} dealDelay={lastHitIdx===-1?(i===0?0:0.64):0}/>))}
         </div>
