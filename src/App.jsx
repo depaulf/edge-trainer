@@ -168,6 +168,34 @@ function getCorrectAction(playerCards,dealerUp){
 function makeHandKey(playerCards,dealerUp,result){if(result.isPair)return`p${playerCards[0].rank}-v${dealerUp}`;if(result.isSoft)return`s${result.total}-v${dealerUp}`;return`h${result.total}-v${dealerUp}`;}
 function makeHandLabel(key){const[h,d]=key.split('-v');if(h.startsWith('p'))return`Pair of ${h.slice(1)}s vs ${d}`;if(h.startsWith('s'))return`Soft ${h.slice(1)} vs ${d}`;return`Hard ${h.slice(1)} vs ${d}`;}
 
+function coachingComment(decisions, dealerUp, handResult){
+  const dealerWeak=['2','3','4','5','6'].includes(dealerUp);
+  const allCorrect=decisions.every(d=>d.isRight);
+  const wrong=decisions.filter(d=>!d.isRight);
+  const multiCard=decisions.length>1;
+  const fw=wrong[0];
+
+  if(allCorrect){
+    if(handResult==='bust') return"Even perfect play busts sometimes. The math still said hit — you made the right call. Long run is what counts.";
+    if(multiCard) return`${decisions.length} decisions, all correct. That's the full chain working — exactly what you're building toward.`;
+    if(decisions[0]?.isSoft) return"Soft hand nailed. The Ace as a safety net is what separates soft decisions from hard ones — you can always be more aggressive.";
+    if(decisions[0]?.isPair) return"Pair decision correct. Anchor rule: Aces and 8s always split, no exceptions. 10s and 5s never split. Everything else follows the dealer's card.";
+    if(dealerWeak) return"Dealer was weak — you let them take the risk. Core principle: don't bust yourself when the dealer is likely to bust first.";
+    return"Correct. Every right rep burns the pattern deeper. That's the whole game.";
+  }
+
+  if(!fw) return"";
+  if(fw.isPair) return"Pairs rule: Aces and 8s always split — no exceptions, no dealer card changes that. 10s and 5s never split. Everything else: check the dealer upcard.";
+  if(fw.isSoft) return"Soft hand rule: you cannot bust on one card when your Ace counts as 11. Be aggressive — hit and double more than feels natural. The Ace protects you.";
+  if(fw.correctAction==='S'&&dealerWeak) return"Dealer 2–6 = weak dealer. They bust 35–42% of the time. Stand on your stiff hands and let them destroy themselves — don't risk busting first.";
+  if(fw.correctAction==='H'&&!dealerWeak) return"Dealer 7–Ace = strong dealer. They make their hand often. Standing on a stiff hand against a strong dealer is the single most expensive mistake in blackjack.";
+  if(fw.correctAction==='D') return"Doubling is how you extract value when the math tilts your way. Missing a double isn't just a mistake — it's leaving expected profit on the table every time it comes up.";
+  if(fw.correctAction==='P') return"Splitting converts one bad hand into two better starting points. When the math says split, you're turning a likely loss into two potentially winning hands.";
+  if(fw.correctAction==='R') return"Surrender saves half your bet on hands you'll lose more than 50% of the time. It's not giving up — it's precision bankroll management.";
+  if(handResult==='bust') return"The bust stings — but the wrong decision came before the bust. The card wasn't the problem; the choice was. Find the decision in the chain that started wrong.";
+  return"One wrong decision doesn't sink you — pattern errors compound over time. Check your nemesis hands in the Progress tab to see where the leaks are.";
+}
+
 function makeHardTotal(target){for(let i=0;i<30;i++){const v=['2','3','4','5','6','7','8','9','10'];const r1=v[Math.floor(Math.random()*v.length)];const v1=r1==='10'?10:parseInt(r1);const v2=target-v1;if(v2<2||v2>10)continue;const r2=v2===10?'10':v2.toString();if(r1===r2)continue;return[{rank:r1,suit:SUITS[Math.floor(Math.random()*4)],red:Math.random()<0.5},{rank:r2,suit:SUITS[Math.floor(Math.random()*4)],red:Math.random()<0.5}];}return null;}
 function generateHandForStage(stage){
   let playerCards,dealerUp=RANKS[Math.floor(Math.random()*RANKS.length)];
@@ -188,7 +216,27 @@ function generateNemesisHand(key){
 
 // ─── Storage helpers ──────────────────────────────────────────────────
 const GS_KEY='bj_gs_v2';
-function freshGs(){return{xp:0,streak:0,bestStreak:0,lastPlayDate:null,totalHands:0,totalCorrect:0,sessions:[],nemesis:{},todayDate:null,todayHands:0,todayCorrect:0,todayXP:0};}
+function freshGs(){return{xp:0,streak:0,bestStreak:0,lastPlayDate:null,totalHands:0,totalCorrect:0,sessions:[],nemesis:{},todayDate:null,todayHands:0,todayCorrect:0,todayXP:0,tabStats:{strategy:{correct:0,total:0},count:{correct:0,total:0},truecount:{correct:0,total:0},deviation:{correct:0,total:0},combined:{correct:0,total:0}}};}
+
+// Curriculum progression rules
+const CURRICULUM=[
+  {tab:'strategy',  label:'Basic Strategy',  icon:'🃏', thresholdTotal:30, thresholdAcc:85, next:'count',    nextLabel:'Running Count',   tip:'Hit 85% accuracy over 30 strategy hands'},
+  {tab:'count',     label:'Running Count',   icon:'🔢', thresholdTotal:10, thresholdAcc:80, next:'truecount',nextLabel:'True Count',      tip:'Get 80% of shoes correct over 10 attempts'},
+  {tab:'truecount', label:'True Count',      icon:'➗', thresholdTotal:20, thresholdAcc:85, next:'deviation',nextLabel:'Deviation',       tip:'Hit 85% accuracy over 20 scenarios'},
+  {tab:'deviation', label:'Deviation',       icon:'📐', thresholdTotal:20, thresholdAcc:80, next:'combined', nextLabel:'Combined',        tip:'Hit 80% accuracy over 20 scenarios'},
+  {tab:'combined',  label:'Combined',        icon:'🎯', thresholdTotal:20, thresholdAcc:75, next:'casino',   nextLabel:'Casino Simulator',tip:'Hit 75% accuracy over 20 hands'},
+  {tab:'casino',    label:'Casino Simulator',icon:'🎰', thresholdTotal:0,  thresholdAcc:0,  next:null,       nextLabel:null,              tip:'You\'re at the final stage'},
+];
+
+function tabAcc(ts,tab){const t=ts?.[tab]||{correct:0,total:0};return t.total>=1?Math.round(t.correct/t.total*100):0;}
+function tabReady(ts,step){const t=ts?.[step.tab]||{correct:0,total:0};return t.total>=step.thresholdTotal&&tabAcc(ts,step.tab)>=step.thresholdAcc;}
+function getProgressionSuggestion(gs,currentTab){
+  const ts=gs?.tabStats||{};
+  const step=CURRICULUM.find(c=>c.tab===currentTab);
+  if(!step||!step.next)return null;
+  if(tabReady(ts,step)) return{text:`${step.label} is solid — time to add ${step.nextLabel}`,nextTab:step.next,nextLabel:step.nextLabel,acc:tabAcc(ts,currentTab)};
+  return null;
+}
 async function loadGs(){try{const r=localStorage.getItem(GS_KEY);return r?JSON.parse(r):freshGs();}catch(e){return freshGs();}}
 async function saveGs(data){try{localStorage.setItem(GS_KEY,JSON.stringify(data));}catch(e){}}
 
@@ -228,7 +276,7 @@ function LevelUpModal({level,onClose}){
 }
 
 // ─── Progress Dashboard ───────────────────────────────────────────────
-function ProgressDashboard({gs}){
+function ProgressDashboard({gs,onNavigate}){
   if(!gs)return<div className="text-amber-200/40 text-center py-8">Loading...</div>;
   const lv=getLevel(gs.xp);const xpp=xpProgress(gs.xp);
   const chartData=gs.sessions.slice(-14).map((s,i)=>({name:s.date?s.date.slice(5):`#${i+1}`,acc:s.total?Math.round(s.correct/s.total*100):0}));
@@ -255,6 +303,35 @@ function ProgressDashboard({gs}){
         {xpp.toNext>0&&(<><div className="flex justify-between text-xs text-amber-200/40 mb-1"><span>{lv.title}</span><span>{xpp.toNext} XP to next level</span></div><div className="w-full bg-emerald-950 rounded-full h-2.5"><div className="bg-gradient-to-r from-amber-600 to-amber-400 h-2.5 rounded-full transition-all" style={{width:`${xpp.pct}%`}}></div></div></>)}
         {xpp.toNext===0&&<div className="text-amber-300/70 text-sm text-center mt-1">🦈 Maximum level — you are the edge.</div>}
       </div>
+
+      {/* Curriculum roadmap */}
+      <div className="bg-emerald-950/60 rounded-xl border border-amber-600/20 p-4">
+        <div className="text-amber-300/60 text-xs uppercase tracking-widest mb-3">Your curriculum path</div>
+        <div className="flex flex-col gap-2">
+          {CURRICULUM.map((step,i)=>{
+            const t=(gs.tabStats||{})[step.tab]||{correct:0,total:0};
+            const acc=t.total>=1?Math.round(t.correct/t.total*100):0;
+            const done=t.total>=step.thresholdTotal&&acc>=step.thresholdAcc&&step.thresholdTotal>0;
+            const inProg=t.total>0&&!done;
+            return(
+              <div key={step.tab} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border ${done?'bg-emerald-900/40 border-emerald-600/30':inProg?'bg-amber-900/20 border-amber-600/30':'bg-emerald-950/40 border-emerald-800/20'}`}>
+                <span className="text-lg">{done?'✅':inProg?'🔥':'⬜'}</span>
+                <div className="flex-1 min-w-0">
+                  <div className={`text-sm font-bold ${done?'text-emerald-300':inProg?'text-amber-300':'text-amber-200/30'}`}>{step.icon} {step.label}</div>
+                  {done&&<div className="text-emerald-400/60 text-xs">Mastered · {acc}%</div>}
+                  {inProg&&<div className="text-amber-300/60 text-xs">{acc}% accuracy · {t.total} reps · goal: {step.thresholdAcc}% over {step.thresholdTotal}</div>}
+                  {!done&&!inProg&&i>0&&<div className="text-amber-200/20 text-xs">Complete {CURRICULUM[i-1].label} first</div>}
+                  {!done&&!inProg&&i===0&&<div className="text-amber-200/30 text-xs">Start here — {step.tip}</div>}
+                </div>
+                {(done||inProg)&&onNavigate&&<button onClick={()=>onNavigate(step.tab)} className={`text-xs px-2 py-1 rounded font-bold flex-shrink-0 ${done?'bg-emerald-800 text-emerald-300':'bg-amber-700 text-amber-100'}`}>Open</button>}
+              </div>
+            );
+          })}
+        </div>
+        {(()=>{const next=CURRICULUM.find(s=>{const t=(gs.tabStats||{})[s.tab]||{correct:0,total:0};return t.total===0&&s.thresholdTotal>0;});return next?(<div className="mt-3 px-3 py-2 bg-amber-900/20 border border-amber-600/20 rounded-lg"><div className="text-amber-300 text-xs font-bold mb-0.5">📍 Next milestone to unlock</div><div className="text-amber-200/70 text-xs">{next.tip}</div></div>):null;})()}
+      </div>
+
+      {/* Streak + daily goal + stats */}
 
       {/* Streak + daily goal + stats */}
       <div className="grid grid-cols-3 gap-2">
@@ -335,7 +412,10 @@ function StrategyTrainer({onAnswer,nemesis}){
   const[stage,setStage]=useState(()=>parseInt(localStorage.getItem('bj_stage')||'1'));
   const[dealerUp,setDealerUp]=useState('6');
   const[playerCards,setPlayerCards]=useState([]);
-  const[feedback,setFeedback]=useState(null);
+  const[decisions,setDecisions]=useState([]);
+  const[handDone,setHandDone]=useState(false);
+  const[handResult,setHandResult]=useState(null);
+  const[lastHitIdx,setLastHitIdx]=useState(-1);
   const[streak,setStreak]=useState(0);
   const[best,setBest]=useState(0);
   const[stats,setStats]=useState({correct:0,total:0});
@@ -343,35 +423,58 @@ function StrategyTrainer({onAnswer,nemesis}){
 
   useEffect(()=>{localStorage.setItem('bj_stage',stage);},[stage]);
 
-  const newHand=useCallback((s)=>{
+  const startNewHand=useCallback((s)=>{
     const nemKeys=Object.entries(nemesis||{}).filter(([,v])=>v.total>=3&&v.wrong/v.total>0.35).map(([k])=>k);
     let hand;
     if(nemKeys.length>0&&Math.random()<0.3){hand=generateNemesisHand(nemKeys[Math.floor(Math.random()*nemKeys.length)]);}
     else{hand=generateHandForStage(s||stage);}
-    setPlayerCards(hand.playerCards);setDealerUp(hand.dealerUp);setFeedback(null);
+    setPlayerCards(hand.playerCards);setDealerUp(hand.dealerUp);
+    setDecisions([]);setHandDone(false);setHandResult(null);setLastHitIdx(-1);
     setDealKey(k=>k+1);
-    // Real dealer order: player card 1 → dealer card → player card 2
-    [0, 320, 640].forEach(ms=>setTimeout(playDealSound,ms));
+    [0,320,640].forEach(ms=>setTimeout(playDealSound,ms));
   },[stage,nemesis]);
 
-  useEffect(()=>{newHand(stage);},[stage]);
+  useEffect(()=>{startNewHand(stage);},[stage]);
 
-  function handleGuess(action){
-    if(feedback)return;
-    const result=getCorrectAction(playerCards,dealerUp);
-    const isRight=action===result.action;
-    const ns={correct:stats.correct+(isRight?1:0),total:stats.total+1};
-    setStats(ns);setStreak(s=>{const n=isRight?s+1:0;setBest(b=>Math.max(b,n));return n;});
-    const explanation=explainAction(playerCards,dealerUp,result.action,result.isPair,result.isSoft,result.total);
-    const rule=!isRight?universalRule(playerCards,dealerUp,result.action,result.isPair,result.isSoft,result.total):null;
-    const hKey=makeHandKey(playerCards,dealerUp,result);
-    const hLabel=makeHandLabel(hKey);
-    setFeedback({isRight,correct:result.action,explanation,rule});
-    onAnswer&&onAnswer(isRight,hKey,hLabel);
+  function finishHand(allDecisions){
+    const handCorrect=allDecisions.every(d=>d.isRight);
+    setStats(s=>({correct:s.correct+(handCorrect?1:0),total:s.total+1}));
+    setStreak(s=>{const n=handCorrect?s+1:0;setBest(b=>Math.max(b,n));return n;});
   }
 
+  function handleDecision(action){
+    if(handDone)return;
+    const result=getCorrectAction(playerCards,dealerUp);
+    const isRight=action===result.action;
+    const explanation=explainAction(playerCards,dealerUp,result.action,result.isPair,result.isSoft,result.total);
+    const rule=!isRight?universalRule(playerCards,dealerUp,result.action,result.isPair,result.isSoft,result.total):null;
+    const decision={action,correctAction:result.action,isRight,total:result.total,isSoft:result.isSoft,isPair:result.isPair,explanation,rule,dealerUp};
+    const newDecisions=[...decisions,decision];
+    setDecisions(newDecisions);
+    const hKey=makeHandKey(playerCards,dealerUp,result);
+    const hLabel=makeHandLabel(hKey);
+    onAnswer&&onAnswer(isRight,hKey,hLabel);
+    playTone(isRight?'correct':'wrong');
+    if(action==='H'){
+      const newCard=randomCard();const newHand=[...playerCards,newCard];const total=handTotal(newHand);
+      setPlayerCards(newHand);setLastHitIdx(newHand.length-1);setTimeout(playDealSound,0);
+      if(total>21){setHandDone(true);setHandResult('bust');finishHand(newDecisions);}
+      else if(total===21){setHandDone(true);setHandResult('stood');finishHand(newDecisions);}
+    } else if(action==='D'){
+      const newCard=randomCard();const newHand=[...playerCards,newCard];
+      setPlayerCards(newHand);setLastHitIdx(newHand.length-1);setTimeout(playDealSound,0);
+      setHandDone(true);setHandResult('doubled');finishHand(newDecisions);
+    } else {
+      setHandDone(true);setHandResult(action==='R'?'surrendered':action==='P'?'split':'stood');finishHand(newDecisions);
+    }
+  }
+
+  const currentTotal=handTotal(playerCards);
   const acc=stats.total?Math.round(stats.correct/stats.total*100):0;
   const canUp=stats.total>=15&&acc>=85&&stage<5;
+  const handAllCorrect=decisions.length>0&&decisions.every(d=>d.isRight);
+  const wrongDecisions=decisions.filter(d=>!d.isRight);
+  const resultLabel=handResult==='bust'?`Bust (${currentTotal})`:handResult==='surrendered'?'Surrendered':handResult==='doubled'?`Doubled → ${currentTotal}`:handResult==='split'?'Split':`Stood on ${currentTotal}`;
 
   return(
     <div className="flex flex-col items-center gap-5">
@@ -381,24 +484,58 @@ function StrategyTrainer({onAnswer,nemesis}){
         <button onClick={()=>{setStage(s=>Math.min(5,s+1));setStats({correct:0,total:0});}} disabled={stage>=5} className="text-amber-300/50 hover:text-amber-300 disabled:opacity-20 px-2 text-sm">▶</button>
       </div>
       {canUp&&(<div className="w-full bg-emerald-800/40 border border-emerald-500/30 rounded-lg px-3 py-2 flex items-center justify-between"><span className="text-emerald-300 text-xs">🎉 {acc}% accuracy — ready to level up!</span><button onClick={()=>{setStage(s=>s+1);setStats({correct:0,total:0});}} className="text-xs bg-emerald-600 text-white px-3 py-1 rounded-lg font-bold">Level up →</button></div>)}
-      <div className="flex flex-col items-center gap-2"><span className="text-amber-300/70 text-xs uppercase tracking-widest">Dealer</span>{dealerUp&&<Card key={`d-${dealKey}`} card={{rank:dealerUp,suit:'♠',red:false}} deal dealDelay={0.32}/>}</div>
-      <div className="flex flex-col items-center gap-2"><span className="text-amber-300/70 text-xs uppercase tracking-widest">Your hand</span><div className="flex gap-2">{playerCards.map((c,i)=><Card key={`p-${dealKey}-${i}`} card={c} deal dealDelay={i===0?0:0.64}/>)}</div></div>
-      {!feedback?(
-        <div className="grid grid-cols-5 gap-2 w-full max-w-md">
-          {ACTION_KEYS.map(a=>(<button key={a.key} onClick={()=>handleGuess(a.key)} className="py-3 rounded-lg bg-emerald-800 hover:bg-emerald-700 text-amber-100 font-semibold text-sm border border-amber-600/30 transition-colors">{a.label}</button>))}
+      <div className="flex flex-col items-center gap-2">
+        <span className="text-amber-300/70 text-xs uppercase tracking-widest">Dealer</span>
+        {dealerUp&&<Card key={`d-${dealKey}`} card={{rank:dealerUp,suit:'♠',red:false}} deal dealDelay={0.32}/>}
+      </div>
+      <div className="flex flex-col items-center gap-2">
+        <span className="text-amber-300/70 text-xs uppercase tracking-widest">
+          Your hand{playerCards.length>0&&<span className={`ml-2 font-bold ${currentTotal>21?'text-rose-400':currentTotal===21?'text-amber-300':'text-amber-200'}`}>({currentTotal}{currentTotal>21?' BUST':currentTotal===21?' — 21':''})</span>}
+        </span>
+        <div className="flex gap-1.5 flex-wrap justify-center">
+          {playerCards.map((c,i)=>(<Card key={`p-${dealKey}-${i}`} card={c} deal={i===lastHitIdx||(lastHitIdx===-1&&i<2)} dealDelay={lastHitIdx===-1?(i===0?0:0.64):0}/>))}
         </div>
-      ):(
-        <div className="flex flex-col items-center gap-3 max-w-md text-center">
-          <div className={`px-4 py-2 rounded-lg font-bold ${feedback.isRight?'bg-emerald-600':'bg-rose-700'} text-white`}>{feedback.isRight?'✓ Correct':`✗ Correct play: ${ACTION_LABEL[feedback.correct]}`}</div>
-          <p className="text-amber-200/80 text-sm leading-relaxed px-2">{feedback.explanation}</p>
-          {feedback.rule&&<p className="text-amber-300/90 text-xs leading-relaxed px-3 py-2 bg-emerald-950/60 rounded-lg border border-amber-600/20">{feedback.rule}</p>}
-          <button onClick={()=>newHand(stage)} className="px-6 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-emerald-950 font-bold">Next hand →</button>
+      </div>
+      {decisions.length>0&&(
+        <div className="flex gap-1.5 flex-wrap justify-center">
+          {decisions.map((d,i)=>(
+            <span key={i} className={`text-xs px-2.5 py-1 rounded-lg font-bold border ${d.isRight?'bg-emerald-800/50 border-emerald-600/30 text-emerald-300':'bg-rose-900/50 border-rose-700/30 text-rose-300'}`}>
+              {d.isRight?'✓':'✗'} {ACTION_LABEL[d.action]} ({d.isSoft?'Soft ':'Hard '}{d.total})
+            </span>
+          ))}
         </div>
       )}
-      <div className="flex gap-6 text-amber-200/70 text-sm"><span>Streak: <b className="text-amber-300">{streak}</b></span><span>Best: <b className="text-amber-300">{best}</b></span><span>Accuracy: <b className="text-amber-300">{acc}%</b> ({stats.correct}/{stats.total})</span></div>
+      {!handDone&&(
+        <div className="grid grid-cols-5 gap-2 w-full max-w-md">
+          {ACTION_KEYS.map(a=>(<button key={a.key} onClick={()=>handleDecision(a.key)} className="py-3 rounded-lg bg-emerald-800 hover:bg-emerald-700 text-amber-100 font-semibold text-sm border border-amber-600/30 transition-colors">{a.label}</button>))}
+        </div>
+      )}
+      {handDone&&(
+        <div className="flex flex-col items-center gap-3 max-w-md w-full text-center">
+          <div className={`px-4 py-2 rounded-lg font-bold w-full ${handAllCorrect?'bg-emerald-600':'bg-rose-700'} text-white`}>
+            {handAllCorrect?`✓ Perfect — ${resultLabel}${decisions.length>1?` (${decisions.length} correct decisions)`:''}`:`${resultLabel}`}
+          </div>
+          {/* Coach comment — always shown */}
+          <div className="w-full px-3 py-2.5 bg-amber-900/30 border border-amber-600/30 rounded-lg text-left">
+            <span className="text-amber-400 text-xs font-bold uppercase tracking-widest block mb-1">💬 Coach</span>
+            <p className="text-amber-200/90 text-sm leading-relaxed">{coachingComment(decisions,dealerUp,handResult)}</p>
+          </div>
+          {wrongDecisions.map((d,i)=>(
+            <div key={i} className="w-full text-left flex flex-col gap-1.5">
+              <div className="text-rose-300 text-xs font-bold">✗ Decision {decisions.indexOf(d)+1}: You chose {ACTION_LABEL[d.action]} on {d.isSoft?'Soft ':'Hard '}{d.total} vs {d.dealerUp} — correct: {ACTION_LABEL[d.correctAction]}</div>
+              <p className="text-amber-200/80 text-sm leading-relaxed">{d.explanation}</p>
+              {d.rule&&<p className="text-amber-300/90 text-xs leading-relaxed px-3 py-2 bg-emerald-950/60 rounded-lg border border-amber-600/20">{d.rule}</p>}
+            </div>
+          ))}
+          {handAllCorrect&&decisions.length>1&&<p className="text-emerald-300/60 text-xs">Every decision in this {decisions.length}-card sequence was correct 🎯</p>}
+          <button onClick={()=>startNewHand(stage)} className="px-6 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-emerald-950 font-bold w-full">Next hand →</button>
+        </div>
+      )}
+      <div className="flex gap-6 text-amber-200/70 text-sm"><span>Streak: <b className="text-amber-300">{streak}</b></span><span>Best: <b className="text-amber-300">{best}</b></span><span>Accuracy: <b className="text-amber-300">{acc}%</b> ({stats.correct}/{stats.total} hands)</span></div>
     </div>
   );
 }
+
 
 // ─── Learn Count ──────────────────────────────────────────────────────
 function LearnCount({onDone}){
@@ -433,7 +570,7 @@ function LearnCount({onDone}){
 }
 
 // ─── Count Trainer ────────────────────────────────────────────────────
-function CountTrainer(){
+function CountTrainer({onResult}){
   const[learnMode,setLearnMode]=useState(true);const[deckCount,setDeckCount]=useState(1);const[speed,setSpeed]=useState(1500);const[distraction,setDistraction]=useState(false);const[running,setRunning]=useState(false);const[shoe,setShoe]=useState([]);const[idx,setIdx]=useState(0);const[guessMode,setGuessMode]=useState(false);const[userGuess,setUserGuess]=useState('');const[result,setResult]=useState(null);
   const intRef=useRef(null);const distRef=useRef(null);const rc=useRef(0);
   function bShoe(n){let c=[];for(let d=0;d<n;d++)RANKS.forEach(r=>SUITS.forEach(s=>c.push({rank:r,suit:s,red:s==='♥'||s==='♦'})));for(let i=c.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[c[i],c[j]]=[c[j],c[i]];}return c;}
@@ -441,7 +578,7 @@ function CountTrainer(){
   function stop(){setRunning(false);clearInterval(intRef.current);}
   useEffect(()=>{if(!running)return;intRef.current=setInterval(()=>{setIdx(p=>{const n=p+1;if(p<shoe.length)rc.current+=hiLoValue(shoe[p].rank);if(n>=shoe.length){clearInterval(intRef.current);setRunning(false);setGuessMode(true);}return n;});},speed);return()=>clearInterval(intRef.current);},[running,shoe,speed]);
   useEffect(()=>{if(distraction&&running){const f=()=>{speak(CHATTER[Math.floor(Math.random()*CHATTER.length)]);distRef.current=setTimeout(f,3000+Math.random()*4000);};distRef.current=setTimeout(f,2000);}else{clearTimeout(distRef.current);try{window.speechSynthesis?.cancel();}catch(e){}}return()=>{clearTimeout(distRef.current);try{window.speechSynthesis?.cancel();}catch(e){};};},[distraction,running]);
-  function submit(){const g=parseInt(userGuess);const dl=Math.max(1,deckCount-Math.floor(idx/52));const tc=(rc.current/dl).toFixed(1);const ok=g===rc.current;setResult({guess:g,actual:rc.current,ok,tc});setGuessMode(false);playTone(ok?'correct':'wrong');}
+  function submit(){const g=parseInt(userGuess);const dl=Math.max(1,deckCount-Math.floor(idx/52));const tc=(rc.current/dl).toFixed(1);const ok=g===rc.current;setResult({guess:g,actual:rc.current,ok,tc});setGuessMode(false);playTone(ok?'correct':'wrong');onResult&&onResult(ok);}
   const cur=idx>0&&idx<=shoe.length?shoe[idx-1]:null;
   if(learnMode)return<LearnCount onDone={()=>setLearnMode(false)}/>;
   return(
@@ -465,11 +602,11 @@ function CountTrainer(){
 }
 
 // ─── True Count Trainer ───────────────────────────────────────────────
-function TrueCountTrainer(){
+function TrueCountTrainer({onResult}){
   const DO=[0.5,1,1.5,2,2.5,3,3.5,4,5,6];const[rc,setRc]=useState(0);const[dl,setDl]=useState(2);const[ua,setUa]=useState('');const[fb,setFb]=useState(null);const[stats,setStats]=useState({c:0,t:0});
   function ns(){setRc(Math.floor(Math.random()*21)-10);setDl(DO[Math.floor(Math.random()*DO.length)]);setUa('');setFb(null);}
   useEffect(()=>{ns();},[]);
-  function sub(){const g=parseFloat(ua);const actual=rc/dl;const rounded=Math.round(actual*2)/2;const ok=Math.abs(g-rounded)<0.3;setStats(s=>({c:s.c+(ok?1:0),t:s.t+1}));setFb({ok,rounded,exact:actual.toFixed(2)});playTone(ok?'correct':'wrong');}
+  function sub(){const g=parseFloat(ua);const actual=rc/dl;const rounded=Math.round(actual*2)/2;const ok=Math.abs(g-rounded)<0.3;setStats(s=>({c:s.c+(ok?1:0),t:s.t+1}));setFb({ok,rounded,exact:actual.toFixed(2)});playTone(ok?'correct':'wrong');onResult&&onResult(ok);}
   const acc=stats.t?Math.round(stats.c/stats.t*100):0;
   return(
     <div className="flex flex-col items-center gap-6 max-w-md mx-auto">
@@ -486,11 +623,11 @@ function TrueCountTrainer(){
 }
 
 // ─── Deviation Trainer ────────────────────────────────────────────────
-function DeviationTrainer(){
+function DeviationTrainer({onResult}){
   const[sc,setSc]=useState(null);const[tc,setTc]=useState(0);const[fb,setFb]=useState(null);const[stats,setStats]=useState({c:0,t:0});
   function ns(){setSc(DEVIATIONS[Math.floor(Math.random()*DEVIATIONS.length)]);setTc(Math.floor(Math.random()*13)-4);setFb(null);}
   useEffect(()=>{ns();},[]);
-  function ans(dev){if(!sc)return;const should=sc.dir==='gte'?tc>=sc.threshold:tc<=sc.threshold;const ok=dev===should;setStats(s=>({c:s.c+(ok?1:0),t:s.t+1}));setFb({ok,should,sc,tc});playTone(ok?'correct':'wrong');}
+  function ans(dev){if(!sc)return;const should=sc.dir==='gte'?tc>=sc.threshold:tc<=sc.threshold;const ok=dev===should;setStats(s=>({c:s.c+(ok?1:0),t:s.t+1}));setFb({ok,should,sc,tc});playTone(ok?'correct':'wrong');onResult&&onResult(ok);}
   if(!sc)return null;const acc=stats.t?Math.round(stats.c/stats.t*100):0;
   return(
     <div className="flex flex-col items-center gap-5 max-w-md mx-auto">
@@ -505,7 +642,7 @@ function DeviationTrainer(){
 }
 
 // ─── Combined Trainer ─────────────────────────────────────────────────
-function CombinedTrainer(){
+function CombinedTrainer({onResult}){
   const[phase,setPhase]=useState('play');const[dUp,setDUp]=useState(null);const[pCards,setPCards]=useState([]);const[extras,setExtras]=useState([]);const[fb,setFb]=useState(null);const[cGuess,setCGuess]=useState('');const[cFb,setCFb]=useState(null);const[distraction,setDistraction]=useState(false);const[stats,setStats]=useState({p:{c:0,t:0},r:{c:0,t:0}});
   const dRef=useRef(null);
   useEffect(()=>{if(distraction){const f=()=>{speak(CHATTER[Math.floor(Math.random()*CHATTER.length)]);dRef.current=setTimeout(f,3500+Math.random()*4000);};dRef.current=setTimeout(f,1500);}else{clearTimeout(dRef.current);try{window.speechSynthesis?.cancel();}catch(e){}}return()=>{clearTimeout(dRef.current);try{window.speechSynthesis?.cancel();}catch(e){};};},[distraction]);
@@ -513,7 +650,9 @@ function CombinedTrainer(){
   useEffect(()=>{nh();},[]);
   function rc(cards){return cards.reduce((s,c)=>s+hiLoValue(c.rank),0);}
   function hp(action){if(!dUp)return;const r=getCorrectAction(pCards,dUp.rank);const ok=action===r.action;const ex=explainAction(pCards,dUp.rank,r.action,r.isPair,r.isSoft,r.total);setStats(s=>({...s,p:{c:s.p.c+(ok?1:0),t:s.p.t+1}}));setFb({ok,correct:r.action,ex});playTone(ok?'correct':'wrong');setPhase('count');}
-  function sc(){const g=parseInt(cGuess);const all=[...extras,dUp,...pCards];const actual=rc(all);const ok=g===actual;setStats(s=>({...s,r:{c:s.r.c+(ok?1:0),t:s.r.t+1}}));setCFb({ok,actual});playTone(ok?'correct':'wrong');setPhase('result');}
+  function sc(){const g=parseInt(cGuess);const all=[...extras,dUp,...pCards];const actual=rc(all);const ok=g===actual;setStats(s=>({...s,r:{c:s.r.c+(ok?1:0),t:s.r.t+1}}));setCFb({ok,actual});playTone(ok?'correct':'wrong');setPhase('result');
+    // Hand fully complete — report combined result (both play and count correct)
+    const playOk=fb&&fb.ok;onResult&&onResult(!!(playOk&&ok));}
   if(!dUp)return null;
   const all=[...extras,dUp,...pCards];const pAcc=stats.p.t?Math.round(stats.p.c/stats.p.t*100):0;const rAcc=stats.r.t?Math.round(stats.r.c/stats.r.t*100):0;
   return(
@@ -611,6 +750,15 @@ export default function App(){
 
   async function persistGs(newGs){gsRef.current={...newGs};setGs({...newGs});await saveGs(newGs);}
 
+  function handleTabResult(tab,isRight){
+    if(!gsRef.current)return;
+    const g={...gsRef.current};
+    if(!g.tabStats)g.tabStats={strategy:{correct:0,total:0},count:{correct:0,total:0},truecount:{correct:0,total:0},deviation:{correct:0,total:0},combined:{correct:0,total:0}};
+    if(!g.tabStats[tab])g.tabStats[tab]={correct:0,total:0};
+    g.tabStats[tab]={correct:g.tabStats[tab].correct+(isRight?1:0),total:g.tabStats[tab].total+1};
+    persistGs(g);
+  }
+
   function handleAnswer(isRight,handKey,handLabel){
     if(!gsRef.current)return;
     const g={...gsRef.current};
@@ -624,6 +772,10 @@ export default function App(){
     }
     g.totalHands=(g.totalHands||0)+1;g.todayHands=(g.todayHands||0)+1;
     if(isRight){g.totalCorrect=(g.totalCorrect||0)+1;g.todayCorrect=(g.todayCorrect||0)+1;}
+    // Track strategy tab stats for progression
+    if(!g.tabStats)g.tabStats={strategy:{correct:0,total:0},count:{correct:0,total:0},truecount:{correct:0,total:0},deviation:{correct:0,total:0},combined:{correct:0,total:0}};
+    if(!g.tabStats.strategy)g.tabStats.strategy={correct:0,total:0};
+    g.tabStats.strategy={correct:g.tabStats.strategy.correct+(isRight?1:0),total:g.tabStats.strategy.total+1};
     if(handKey){const ex=g.nemesis[handKey]||{wrong:0,total:0,label:handLabel||handKey};g.nemesis={...g.nemesis,[handKey]:{...ex,total:ex.total+1,wrong:ex.wrong+(isRight?0:1),label:handLabel||ex.label}};}
     let xpE=isRight?10:2;let isBonus=false;
     if(isRight){const rnd=Math.random();if(rnd<0.04){xpE=30;isBonus=true;}else if(rnd<0.15){xpE=20;isBonus=true;}if(g.streak>=7)xpE+=3;else if(g.streak>=3)xpE+=1;}
@@ -671,13 +823,23 @@ export default function App(){
         </div>
 
         <div className="bg-emerald-900/40 rounded-2xl border border-amber-600/20 p-5 shadow-2xl">
+          {/* Progression suggestion banner */}
+          {gs&&(()=>{const s=getProgressionSuggestion(gs,tab);return s?(
+            <div className="mb-4 w-full bg-emerald-800/60 border border-emerald-500/40 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-emerald-300 text-xs font-bold uppercase tracking-widest mb-0.5">🎯 Ready to level up</div>
+                <div className="text-emerald-200/80 text-sm">{s.text} ({s.acc}%)</div>
+              </div>
+              <button onClick={()=>setTab(s.nextTab)} className="flex-shrink-0 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold whitespace-nowrap">{s.nextLabel} →</button>
+            </div>
+          ):null;})()}
           {tab==='strategy'&&<StrategyTrainer onAnswer={handleAnswer} nemesis={gs?.nemesis||{}}/>}
-          {tab==='count'&&<CountTrainer/>}
-          {tab==='truecount'&&<TrueCountTrainer/>}
-          {tab==='deviation'&&<DeviationTrainer/>}
-          {tab==='combined'&&<CombinedTrainer/>}
+          {tab==='count'&&<CountTrainer onResult={(ok)=>handleTabResult('count',ok)}/>}
+          {tab==='truecount'&&<TrueCountTrainer onResult={(ok)=>handleTabResult('truecount',ok)}/>}
+          {tab==='deviation'&&<DeviationTrainer onResult={(ok)=>handleTabResult('deviation',ok)}/>}
+          {tab==='combined'&&<CombinedTrainer onResult={(ok)=>handleTabResult('combined',ok)}/>}
           {tab==='casino'&&<PaperTrading/>}
-          {tab==='progress'&&<ProgressDashboard gs={gs}/>}
+          {tab==='progress'&&<ProgressDashboard gs={gs} onNavigate={setTab}/>}
         </div>
         <p className="text-center text-amber-200/20 text-xs mt-4">Dealer stands soft 17 · DAS allowed · 6-deck shoe</p>
       </div>
