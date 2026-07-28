@@ -149,7 +149,9 @@ function explainAction(playerCards,dealerUp,action,isPair,isSoft,total){
   if(action==='D')return`Hard ${total} vs dealer ${dv}: dealer is weak — double to get more money in while odds favor you.`;
   if(action==='S')return`Hard ${total} vs dealer ${dv}: dealer is weak and likely to bust — stand and let them hang.`;
   if(action==='R')return`Hard ${total} vs dealer ${dv}: near-certain loss — surrendering saves half your bet.`;
-  if(action==='H')return`Hard ${total} vs dealer ${dv}: dealer is strong — improve your hand even at bust risk.`;
+  if(action==='H')return playerCards.length>2
+    ?`Hard ${total} vs dealer ${dv}: surrender would be correct on 2 cards but isn't available after hitting — hit is the next best option. Never stand here.`
+    :`Hard ${total} vs dealer ${dv}: dealer is strong — improve your hand even at bust risk.`;
   return"";
 }
 function universalRule(playerCards,dealerUp,action,isPair,isSoft,total){
@@ -169,9 +171,20 @@ function getCorrectAction(playerCards,dealerUp){
   const ranks=playerCards.map(c=>c.rank);const isPair=ranks[0]===ranks[1]&&playerCards.length===2;const dv=dealerUp==='A'?11:cardValue(dealerUp);
   if(isPair){const pk=ranks[0]==='A'?'A':(cardValue(ranks[0])===10?'10':ranks[0]);const act=PAIRS[pk]?.[dv];if(act)return{action:act,isPair:true,isSoft:false,total:cardValue(ranks[0])*2>21?12:cardValue(ranks[0])*2};}
   let na=0,rs=0;ranks.forEach(r=>{if(r==='A'){na++;rs+=11;}else rs+=cardValue(r);});let ft=rs,ua=na;while(ft>21&&ua>0){ft-=10;ua--;}
-  const isSoft=na>0&&ua>0&&playerCards.length===2;
-  if(isSoft&&SOFT[ft])return{action:SOFT[ft][dv]||'H',isPair:false,isSoft:true,total:ft};
-  const hv=Math.min(ft,21);let act=hv<=8?'H':hv>=18&&!isSoft?'S':HARD[hv]?HARD[hv][dv]||'H':hv>=17?'S':'H';
+  const isSoft=na>0&&ua>0; // Ace still counts as 11 — soft regardless of card count
+  if(isSoft&&SOFT[ft]){
+    let softAction=SOFT[ft][dv]||'H';
+    // Double not available on 3+ cards — fall back to hit
+    if(playerCards.length>2&&softAction==='D')softAction='H';
+    return{action:softAction,isPair:false,isSoft:true,total:ft};
+  }
+  const hv=Math.min(ft,21);
+  let act=hv<=8?'H':hv>=18&&!isSoft?'S':HARD[hv]?HARD[hv][dv]||'H':hv>=17?'S':'H';
+  // Surrender and Double are only legal on first 2 cards — replace with correct fallback for 3+ card hands
+  if(playerCards.length>2){
+    if(act==='R')act='H'; // surrender → hit (next best option)
+    if(act==='D')act='H'; // double → hit (can't double after hitting)
+  }
   return{action:act,isPair:false,isSoft:false,total:hv};
 }
 function makeHandKey(playerCards,dealerUp,result){if(result.isPair)return`p${playerCards[0].rank}-v${dealerUp}`;if(result.isSoft)return`s${result.total}-v${dealerUp}`;return`h${result.total}-v${dealerUp}`;}
