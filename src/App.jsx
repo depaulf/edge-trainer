@@ -158,7 +158,10 @@ function universalRule(playerCards,dealerUp,action,isPair,isSoft,total){
   const dw=['2','3','4','5','6'].includes(dealerUp);
   const dvw=['4','5','6'].includes(dealerUp);
   if(isPair){const r=playerCards[0].rank;if(r==='A'||r==='8')return"📏 Rule: ALWAYS split Aces and 8s, no exceptions.";if(r==='10')return"📏 Rule: NEVER split 10s — 20 is too good to break up.";if(r==='5')return"📏 Rule: NEVER split 5s — treat as hard 10 and double when dealer is weak.";return"📏 Rule: Split low pairs only when dealer shows 2–7 (weak cards most likely to bust them).";}
-  if(isSoft)return"📏 Rule: Soft hands can't bust on one card — lean toward hitting or doubling, rarely stand below soft 18.";
+  if(isSoft){
+    if(total>=19)return"📏 Rule: Soft 19 and Soft 20 always Stand — they're already winning hands. The aggressive soft hand rules only apply to Soft 13 through 18.";
+    return"📏 Rule: Soft hands can't bust on one card — lean toward hitting or doubling, rarely stand below soft 18.";
+  }
   if(total>=17)return"📏 Rule: Hard 17+ — ALWAYS stand, no matter what.";
   if(total<=11)return"📏 Rule: Hard 11 or less can never bust on one card — hit or double, never stand.";
   // 12 is the trickiest stiff hand — 2 and 3 are NOT weak enough to justify standing
@@ -208,7 +211,12 @@ function coachingComment(decisions, dealerUp, handResult){
 
   if(!fw) return"";
   if(fw.isPair) return"Pairs rule: Aces and 8s always split — no exceptions, no dealer card changes that. 10s and 5s never split. Everything else: check the dealer upcard.";
-  if(fw.isSoft) return"Soft hand rule: you cannot bust on one card when your Ace counts as 11. Be aggressive — hit and double more than feels natural. The Ace protects you.";
+  if(fw.isSoft){
+    // Wrong direction matters — too passive vs too aggressive
+    if((fw.action==='D'||fw.action==='H')&&(fw.correctAction==='S'))
+      return"Soft 19 and Soft 20 always Stand — no exceptions. They're already strong enough to win. The 'be aggressive' soft hand rule only applies to Soft 13 through 18.";
+    return"Soft hand rule: you cannot bust on one card when your Ace counts as 11. Be aggressive — hit and double more than feels natural. The Ace protects you.";
+  }
   if(fw.correctAction==='S'&&dealerWeak) return"Dealer 2–6 = weak dealer. They bust 35–42% of the time. Stand on your stiff hands and let them destroy themselves — don't risk busting first.";
   if(fw.correctAction==='H'&&!dealerWeak) return"Dealer 7–Ace = strong dealer. They make their hand often. Standing on a stiff hand against a strong dealer is the single most expensive mistake in blackjack.";
   if(fw.correctAction==='D') return"Doubling is how you extract value when the math tilts your way. Missing a double isn't just a mistake — it's leaving expected profit on the table every time it comes up.";
@@ -695,7 +703,18 @@ function CombinedTrainer({onResult}){
 // ─── Paper Trading ────────────────────────────────────────────────────
 function PaperTrading(){
   const UNIT=10;const shoeR=useRef([]);const idxR=useRef(0);const rcR=useRef(0);
-  const[bankroll,setBankroll]=useState(500);const[bet,setBet]=useState(10);const[pH,setPH]=useState([]);const[dH,setDH]=useState([]);const[phase,setPhase]=useState('betting');const[result,setResult]=useState(null);const[dRC,setDRC]=useState(0);const[dTC,setDTC]=useState(0);const[dDL,setDDL]=useState(6);const[stats,setStats]=useState({h:0,w:0,p:0});const[hist,setHist]=useState([]);const[pct,setPct]=useState(0);const[casinoDealKey,setCasinoDealKey]=useState(0);
+  const[bankroll,setBankroll]=useState(500);const[bet,setBet]=useState(10);
+  const[pH,setPH]=useState([]);const[dH,setDH]=useState([]);
+  const[phase,setPhase]=useState('betting');const[result,setResult]=useState(null);
+  const[dRC,setDRC]=useState(0);const[dTC,setDTC]=useState(0);const[dDL,setDDL]=useState(6);
+  const[stats,setStats]=useState({h:0,w:0,p:0});const[hist,setHist]=useState([]);const[pct,setPct]=useState(0);
+  const[casinoDealKey,setCasinoDealKey]=useState(0);
+  // Split state
+  const[splitMode,setSplitMode]=useState(false);
+  const[splitHand2,setSplitHand2]=useState([]);
+  const[activeHand,setActiveHand]=useState(1);
+  const[hand1Saved,setHand1Saved]=useState(null); // {cards,total,out,profit}
+
   function buildShoe(){let c=[];for(let d=0;d<6;d++)RANKS.forEach(r=>SUITS.forEach(s=>c.push({rank:r,suit:s,red:s==='♥'||s==='♦'})));for(let i=c.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[c[i],c[j]]=[c[j],c[i]];}return c;}
   function initShoe(){shoeR.current=buildShoe();idxR.current=0;rcR.current=0;ud();}
   function ud(){const rem=shoeR.current.length-idxR.current;const dl=Math.max(0.5,rem/52);setDRC(rcR.current);setDTC(parseFloat((rcR.current/dl).toFixed(1)));setDDL(parseFloat(dl.toFixed(1)));setPct(Math.round(idxR.current/shoeR.current.length*100));}
@@ -703,18 +722,100 @@ function PaperTrading(){
   useEffect(()=>{initShoe();},[]);
   function recBet(tc){if(tc<=0)return UNIT;if(tc<1)return UNIT*2;if(tc<2)return UNIT*3;if(tc<3)return UNIT*5;return UNIT*8;}
   const rb=recBet(dTC);const sig=dTC>=2?'hot':dTC<=-1?'cold':'neutral';
+
   function deal(){
     if(idxR.current>shoeR.current.length*0.75)initShoe();
     const c1=draw(),c2=draw(),d1=draw(),d2=draw();if(!c1)return;
-    const ph=[c1,c2],dh=[d1,d2];setPH(ph);setDH(dh);setPhase('playing');setResult(null);
+    const ph=[c1,c2],dh=[d1,d2];
+    setPH(ph);setDH(dh);setPhase('playing');setResult(null);
+    setSplitMode(false);setSplitHand2([]);setActiveHand(1);setHand1Saved(null);
     setCasinoDealKey(k=>k+1);
-    [0, 320, 640, 960].forEach(ms=>setTimeout(playDealSound,ms));
-    if(handTotal(ph)===21){resolve(ph,dh,true);}
+    [0,320,640,960].forEach(ms=>setTimeout(playDealSound,ms));
+    if(handTotal(ph)===21){resolve(ph,dh,true,null);}
   }
-  function hit(){const c=draw();if(!c)return;const nh=[...pH,c];setPH(nh);playDealSound();if(handTotal(nh)>=21)resolve(nh,dH,false);}
-  function stand(){resolve(pH,dH,false);}
-  function dbl(){if(bet*2>bankroll)return;setBet(b=>b*2);const c=draw();if(!c)return;const nh=[...pH,c];setPH(nh);resolve(nh,dH,false);}
-  function resolve(ph,dh,nat){
+
+  function hit(){
+    const currentHand=splitMode&&activeHand===2?splitHand2:pH;
+    const c=draw();if(!c)return;
+    const nh=[...currentHand,c];playDealSound();
+    if(splitMode&&activeHand===2){setSplitHand2(nh);if(handTotal(nh)>=21)finishHand2(nh);}
+    else{setPH(nh);if(handTotal(nh)>=21){if(splitMode)switchToHand2(nh);else resolve(nh,dH,false,null);}}
+  }
+
+  function stand(){
+    if(splitMode&&activeHand===2){finishHand2(splitHand2);}
+    else if(splitMode){switchToHand2(pH);}
+    else{resolve(pH,dH,false,null);}
+  }
+
+  function dbl(){
+    if(bet*2>bankroll)return;
+    setBet(b=>b*2);setBankroll(b=>b-bet);
+    const c=draw();if(!c)return;
+    const nh=[...pH,c];setPH(nh);playDealSound();
+    resolve(nh,dH,false,null);
+  }
+
+  function playerSurrender(){
+    const halfLoss=Math.floor(bet/2);
+    const profit=-halfLoss;
+    setBankroll(b=>b+profit);
+    setStats(s=>({h:s.h+1,w:s.w,p:s.p+profit}));
+    setHist(h=>[...h.slice(-11),{out:'surrender',profit}]);
+    setResult({out:'surrender',profit,pt:handTotal(pH),dt:'?'});
+    setPhase('result');
+    playTone('wrong');
+  }
+
+  function playerSplit(){
+    if(pH.length!==2||pH[0].rank!==pH[1].rank)return;
+    if(bet*2>bankroll)return;
+    setBankroll(b=>b-bet); // deduct extra bet upfront
+    const nc1=draw(),nc2=draw();if(!nc1||!nc2)return;
+    const h1=[pH[0],nc1];
+    const h2=[pH[1],nc2];
+    setTimeout(playDealSound,0);setTimeout(playDealSound,320);
+    setPH(h1);setSplitHand2(h2);setSplitMode(true);setActiveHand(1);
+    setCasinoDealKey(k=>k+1);
+    // Split aces: one card each, auto-stand both
+    if(pH[0].rank==='A'){
+      setTimeout(()=>{switchToHand2(h1,true);},800);
+    }
+  }
+
+  function switchToHand2(finalHand1,isAces=false){
+    // Save hand 1 result for later
+    const h1Total=handTotal(finalHand1);
+    setHand1Saved({cards:finalHand1,total:h1Total,bust:h1Total>21});
+    setActiveHand(2);
+    if(isAces){setTimeout(()=>finishHand2(splitHand2),800);}
+  }
+
+  function finishHand2(finalHand2){
+    // Now dealer plays and we resolve both hands
+    const h1=hand1Saved||{cards:pH,total:handTotal(pH),bust:handTotal(pH)>21};
+    const h2total=handTotal(finalHand2);
+    // Dealer plays
+    let dc=[...dH];
+    while(handTotal(dc)<17){const c=draw();if(!c)break;dc.push(c);}
+    setDH(dc);
+    const dt=handTotal(dc);
+    // Resolve hand 1
+    function outcome(pt){if(pt>21)return'bust';if(dt>21)return'win';if(pt>dt)return'win';if(pt<dt)return'lose';return'push';}
+    const out1=outcome(h1.total);const out2=outcome(h2total);
+    const p1=out1==='win'?bet:out1==='lose'||out1==='bust'?-bet:0;
+    const p2=out2==='win'?bet:out2==='lose'||out2==='bust'?-bet:0;
+    const totalProfit=p1+p2;
+    setBankroll(b=>b+bet+totalProfit); // refund the split extra bet calculation (already deducted) + profit
+    setStats(s=>({h:s.h+1,w:s.w+((out1==='win'?1:0)+(out2==='win'?1:0)),p:s.p+totalProfit}));
+    setHist(h=>[...h.slice(-11),{out:totalProfit>0?'win':totalProfit<0?'lose':'push',profit:totalProfit}]);
+    setResult({out:'split',out1,out2,p1,p2,totalProfit,h1total:h1.total,h2total,dt});
+    setPhase('result');
+    playTone(totalProfit>0?'correct':totalProfit<0?'wrong':'correct');
+    setSplitHand2(finalHand2);
+  }
+
+  function resolve(ph,dh,nat,_){
     let dc=[...dh];const pt=handTotal(ph);
     if(pt<=21&&!nat){while(handTotal(dc)<17){const c=draw();if(!c)break;dc.push(c);}}
     setDH(dc);const dt=handTotal(dc);
@@ -724,9 +825,35 @@ function PaperTrading(){
     setHist(h=>[...h.slice(-11),{out,profit}]);setResult({out,profit,pt,dt:handTotal(dc)});setPhase('result');
     playTone(profit>0?'correct':profit<0?'wrong':'correct');
   }
-  function next(){setBet(UNIT);setPhase('betting');}
-  function reset(){initShoe();setBankroll(500);setStats({h:0,w:0,p:0});setHist([]);setPhase('betting');setPH([]);setDH([]);setResult(null);}
+
+  function next(){setBet(UNIT);setPhase('betting');setSplitMode(false);setSplitHand2([]);setActiveHand(1);setHand1Saved(null);}
+  function reset(){initShoe();setBankroll(500);setStats({h:0,w:0,p:0});setHist([]);setPhase('betting');setPH([]);setDH([]);setResult(null);setSplitMode(false);setSplitHand2([]);setActiveHand(1);setHand1Saved(null);}
+
+  function casinoCoach(res,dealerCards,tc){
+    if(!res||!dealerCards.length)return null;
+    const du=dealerCards[0].rank;const dw=['2','3','4','5','6'].includes(du);
+    if(res.out==='surrender')return"Surrendering saved half your bet on a near-certain loss. That's bankroll management — you live to play the next hand.";
+    if(res.out==='bj')return`Blackjack 3:2 — this is why you raise bets when the count is high. More 10s and Aces in the deck means more of these.`;
+    if(res.out==='bust')return dw?`You busted against a weak dealer ${du}. Next time stand on your stiff hands and let THEM bust — they do it 35–42% of the time.`:`You busted against dealer ${du}. With a strong upcard, hitting was correct even with bust risk — variance happens.`;
+    if(res.out==='split'){
+      if(res.out1==='win'&&res.out2==='win')return"Both split hands won — best case scenario. The split was the right call.";
+      if(res.out1==='lose'&&res.out2==='lose')return"Both split hands lost, but the split was still correct — you converted one bad hand into two independent chances.";
+      return"Split hands go different ways — that's normal. Two independent hands means two independent outcomes.";
+    }
+    if(res.out==='win'&&tc>=2)return`Hot deck (TC +${tc.toFixed(1)}) delivered a win — this is exactly when you want more money on the table.`;
+    if(res.out==='lose'&&tc>=2)return`Lost even with a hot count (+${tc.toFixed(1)}). The edge plays out over hundreds of hands — stay disciplined on bet sizing.`;
+    if(res.out==='lose'&&dw)return`Dealer ${du} made it this time — they still bust 35–42% against weak upcards. Stand correctly and the math rewards you long-term.`;
+    if(res.out==='push')return"Push — these happen about 8% of the time. No gain, no loss, count kept moving.";
+    if(res.out==='win')return`Good win. Keep tracking the count — when TC hits +2 or above, that's when to get more money in.`;
+    return null;
+  }
+
+  const isPair=pH.length===2&&pH[0]?.rank===pH[1]?.rank;
+  const canSurrender=pH.length===2&&!splitMode;
   const wr=stats.h?Math.round(stats.w/stats.h*100):0;
+  const currentActiveCards=splitMode&&activeHand===2?splitHand2:pH;
+  const coach=casinoCoach(result,dH,dTC);
+
   return(
     <div className="flex flex-col items-center gap-4 max-w-md mx-auto">
       <div className="w-full grid grid-cols-3 gap-2">
@@ -738,15 +865,79 @@ function PaperTrading(){
       {sig==='cold'&&<div className="w-full bg-rose-900/30 border border-rose-500/20 rounded-lg px-3 py-2 text-center"><span className="text-rose-300 text-sm">❄️ Cold deck — bet minimum ${UNIT} or sit out</span></div>}
       {sig==='neutral'&&phase==='betting'&&<div className="w-full bg-stone-800/30 border border-stone-600/20 rounded-lg px-3 py-2 text-center"><span className="text-amber-200/50 text-xs">Neutral shoe · Recommended bet: ${rb} · RC: {dRC>0?'+':''}{dRC}</span></div>}
       <div className="w-full"><div className="flex justify-between text-amber-200/30 text-xs mb-1"><span>Shoe: {pct}% dealt</span><span>{dDL} decks left</span></div><div className="w-full bg-emerald-950 rounded-full h-1.5"><div className="bg-amber-500 h-1.5 rounded-full transition-all" style={{width:`${pct}%`}}></div></div>{pct>70&&<div className="text-amber-300/50 text-xs text-center mt-1">♻️ Reshuffle approaching</div>}</div>
+
+      {/* Dealer */}
       {dH.length>0&&(<div className="flex flex-col items-center gap-1"><span className="text-amber-300/60 text-xs uppercase tracking-widest">Dealer {phase==='playing'?'(?)':phase!=='betting'?`(${handTotal(dH)})`:''}  </span><div className="flex gap-2">{dH.map((c,i)=><Card key={`cd-${casinoDealKey}-${i}`} card={c} hidden={i===1&&phase==='playing'} deal dealDelay={i===0?0.32:0.96}/>)}</div></div>)}
-      {pH.length>0&&(<div className="flex flex-col items-center gap-1"><span className="text-amber-300/60 text-xs uppercase tracking-widest">You ({handTotal(pH)})</span><div className="flex gap-2 flex-wrap justify-center">{pH.map((c,i)=><Card key={`cp-${casinoDealKey}-${i}`} card={c} deal={i>=pH.length-1} dealDelay={pH.length===2?(i===0?0:0.64):0}/>)}</div></div>)}
+
+      {/* Split mode: show both hands */}
+      {splitMode?(
+        <div className="flex gap-4 justify-center w-full">
+          <div className={`flex flex-col items-center gap-1 p-2 rounded-xl border ${activeHand===1?'border-amber-500/60 bg-amber-900/10':'border-emerald-700/30'}`}>
+            <span className="text-amber-300/60 text-xs">{activeHand===1?'▶ Hand 1':'Hand 1'}</span>
+            <div className="flex gap-1">{pH.map((c,i)=><Card key={`h1-${i}`} card={c} small/>)}</div>
+            {hand1Saved&&<span className={`text-xs font-bold ${hand1Saved.bust?'text-rose-400':'text-emerald-300'}`}>{hand1Saved.bust?'Bust':hand1Saved.total}</span>}
+          </div>
+          <div className={`flex flex-col items-center gap-1 p-2 rounded-xl border ${activeHand===2?'border-amber-500/60 bg-amber-900/10':'border-emerald-700/30'}`}>
+            <span className="text-amber-300/60 text-xs">{activeHand===2?'▶ Hand 2':'Hand 2'}</span>
+            <div className="flex gap-1">{splitHand2.map((c,i)=><Card key={`h2-${i}`} card={c} small/>)}</div>
+          </div>
+        </div>
+      ):(
+        pH.length>0&&(<div className="flex flex-col items-center gap-1"><span className="text-amber-300/60 text-xs uppercase tracking-widest">You ({handTotal(pH)})</span><div className="flex gap-2 flex-wrap justify-center">{pH.map((c,i)=><Card key={`cp-${casinoDealKey}-${i}`} card={c} deal={i>=pH.length-1} dealDelay={pH.length===2?(i===0?0:0.64):0}/>)}</div></div>)
+      )}
+
+      {/* Betting phase */}
       {phase==='betting'&&(<div className="flex flex-col items-center gap-3 w-full"><div className="flex justify-between w-full px-1 text-xs text-amber-200/50"><span>Your bet: <b className="text-amber-200">${bet}</b></span><span className={sig==='hot'?'text-emerald-400':'text-amber-200/30'}>Rec: ${rb}</span></div><div className="flex gap-2 flex-wrap justify-center">{[10,20,30,40,50,60,70,80].map(b=><button key={b} onClick={()=>setBet(b)} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${bet===b?'bg-amber-600 text-emerald-950':'bg-emerald-900 text-amber-200/60 border border-amber-600/20'}`}>${b}</button>)}</div><button onClick={deal} disabled={bet>bankroll||bankroll<=0} className="px-8 py-3 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-emerald-950 font-bold text-lg w-full">Deal — Bet ${bet}</button>{bankroll<=0&&<button onClick={reset} className="px-4 py-2 rounded-lg bg-rose-700 text-white text-sm font-bold">Reset session</button>}</div>)}
-      {phase==='playing'&&<div className="flex gap-2 w-full"><button onClick={hit} className="flex-1 py-3 rounded-lg bg-emerald-800 hover:bg-emerald-700 text-amber-100 font-bold">Hit</button><button onClick={stand} className="flex-1 py-3 rounded-lg bg-emerald-800 hover:bg-emerald-700 text-amber-100 font-bold">Stand</button><button onClick={dbl} disabled={bet*2>bankroll||pH.length>2} className="flex-1 py-3 rounded-lg bg-emerald-800 hover:bg-emerald-700 disabled:opacity-30 text-amber-100 font-bold text-sm">Double</button></div>}
-      {phase==='result'&&result&&(<div className="flex flex-col items-center gap-3 w-full"><div className={`w-full py-3 rounded-xl font-bold text-lg text-center ${result.out==='bj'?'bg-amber-500 text-emerald-950':result.out==='win'?'bg-emerald-600 text-white':result.out==='push'?'bg-stone-600 text-white':'bg-rose-700 text-white'}`}>{result.out==='bj'?`🎰 Blackjack! +$${result.profit}`:result.out==='win'?`✓ Win +$${result.profit}`:result.out==='push'?'↔ Push':`✗ ${result.out==='bust'?'Bust':'Lose'} -$${Math.abs(result.profit)}`}</div><div className="text-amber-200/50 text-xs">You: {result.pt} · Dealer: {result.dt}</div><button onClick={next} className="px-8 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-emerald-950 font-bold w-full">Next hand →</button></div>)}
+
+      {/* Playing phase */}
+      {phase==='playing'&&(
+        <div className="flex gap-2 w-full flex-wrap">
+          <button onClick={hit} className="flex-1 py-3 rounded-lg bg-emerald-800 hover:bg-emerald-700 text-amber-100 font-bold">Hit</button>
+          <button onClick={stand} className="flex-1 py-3 rounded-lg bg-emerald-800 hover:bg-emerald-700 text-amber-100 font-bold">Stand</button>
+          {!splitMode&&<button onClick={dbl} disabled={bet*2>bankroll||pH.length>2} className="flex-1 py-3 rounded-lg bg-emerald-800 hover:bg-emerald-700 disabled:opacity-30 text-amber-100 font-bold text-sm">Double</button>}
+          {canSurrender&&<button onClick={playerSurrender} className="flex-1 py-3 rounded-lg bg-stone-700 hover:bg-stone-600 text-amber-100 font-bold text-sm">Surr.</button>}
+          {!splitMode&&isPair&&<button onClick={playerSplit} disabled={bet*2>bankroll} className="flex-1 py-3 rounded-lg bg-emerald-700 hover:bg-emerald-600 disabled:opacity-30 text-amber-100 font-bold text-sm border border-amber-500/30">Split</button>}
+        </div>
+      )}
+
+      {/* Result phase */}
+      {phase==='result'&&result&&(
+        <div className="flex flex-col items-center gap-3 w-full">
+          {result.out==='split'?(
+            <div className="w-full flex flex-col gap-2">
+              <div className={`w-full py-2 rounded-xl font-bold text-sm text-center ${result.out1==='win'?'bg-emerald-600 text-white':'bg-rose-700 text-white'}`}>
+                Hand 1: {result.out1==='win'?`✓ Win +$${bet}`:result.out1==='push'?'↔ Push':`✗ Lose -$${bet}`} ({result.h1total})
+              </div>
+              <div className={`w-full py-2 rounded-xl font-bold text-sm text-center ${result.out2==='win'?'bg-emerald-600 text-white':'bg-rose-700 text-white'}`}>
+                Hand 2: {result.out2==='win'?`✓ Win +$${bet}`:result.out2==='push'?'↔ Push':`✗ Lose -$${bet}`} ({result.h2total})
+              </div>
+              <div className="text-amber-200/50 text-xs text-center">Dealer: {result.dt} · Net: {result.totalProfit>=0?'+':''}{result.totalProfit}</div>
+            </div>
+          ):(
+            <div className={`w-full py-3 rounded-xl font-bold text-lg text-center ${
+              result.out==='bj'?'bg-amber-500 text-emerald-950':
+              result.out==='win'?'bg-emerald-600 text-white':
+              result.out==='push'?'bg-stone-600 text-white':
+              result.out==='surrender'?'bg-stone-700 text-amber-200':
+              'bg-rose-700 text-white'}`}>
+              {result.out==='bj'?`🎰 Blackjack! +$${result.profit}`:
+               result.out==='win'?`✓ Win +$${result.profit}`:
+               result.out==='push'?'↔ Push':
+               result.out==='surrender'?`↩ Surrendered -$${Math.abs(result.profit)}`:
+               `✗ ${result.out==='bust'?'Bust':'Lose'} -$${Math.abs(result.profit)}`}
+            </div>
+          )}
+          {result.out!=='split'&&result.out!=='surrender'&&<div className="text-amber-200/50 text-xs">You: {result.pt} · Dealer: {result.dt}</div>}
+          {coach&&<div className="w-full px-3 py-2.5 bg-amber-900/30 border border-amber-600/30 rounded-lg"><span className="text-amber-400 text-xs font-bold uppercase tracking-widest block mb-1">💬 Coach</span><p className="text-amber-200/90 text-sm leading-relaxed">{coach}</p></div>}
+          <button onClick={next} className="px-8 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-emerald-950 font-bold w-full">Next hand →</button>
+        </div>
+      )}
+
       {hist.length>0&&<div className="flex gap-1 flex-wrap justify-center">{hist.map((h,i)=><span key={i} className={`text-xs px-1.5 py-0.5 rounded font-bold ${h.profit>0?'bg-emerald-800 text-emerald-300':h.profit===0?'bg-stone-700 text-stone-300':'bg-rose-900 text-rose-300'}`}>{h.profit>0?'+':''}{h.profit}</span>)}</div>}
       <div className="flex gap-4 text-amber-200/40 text-xs"><span>Hands: <b className="text-amber-300">{stats.h}</b></span><span>Win rate: <b className="text-amber-300">{wr}%</b></span><button onClick={reset} className="text-amber-300/30 hover:text-amber-300 underline">Reset</button></div>
     </div>
   );
+
 }
 
 // ─── App ──────────────────────────────────────────────────────────────
